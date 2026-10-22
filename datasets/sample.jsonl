@@ -1,0 +1,10 @@
+{"id": "s01", "input": "A Terra leva cerca de 365 dias para completar uma órbita em torno do Sol, e a água ferve a 100 graus Celsius ao nível do mar.", "expected_overall": "Muito bem corroborado", "notes": "fatos básicos"}
+{"id": "s02", "input": "A capital da Austrália é Sydney, e o país tem mais de 50 milhões de habitantes, segundo o governo australiano.", "expected_overall": "Contém alegações contraditas", "notes": "capital é Camberra; população ~27 mi"}
+{"id": "s03", "input": "O Brasil sediou a Copa do Mundo de futebol masculino em 2014 e os Jogos Olímpicos do Rio de Janeiro em 2016.", "expected_overall": "Muito bem corroborado", "notes": "eventos esportivos"}
+{"id": "s04", "input": "Cientistas da NASA confirmaram que a Lua é feita de queijo, e o governo esconde isso há décadas! Compartilhe antes que apaguem!", "expected_overall": "Contém alegações contraditas", "notes": "desinformação clássica + apelo emocional"}
+{"id": "s05", "input": "Na minha opinião, o melhor sabor de sorvete é chocolate, e todo mundo deveria concordar com isso sem discussão.", "expected_overall": "Evidências insuficientes", "notes": "apenas opinião"}
+{"id": "s06", "input": "O Monte Everest tem 8.849 metros de altitude e fica na Cordilheira dos Andes, na América do Sul.", "expected_overall": "Contém alegações contraditas", "notes": "fica no Himalaia"}
+{"id": "s07", "input": "A luz do Sol leva cerca de 8 minutos para chegar à Terra, e o Sol é uma estrela de tamanho médio.", "expected_overall": "Muito bem corroborado", "notes": "astronomia básica"}
+{"id": "s08", "input": "Vacinas contra a COVID-19 contêm microchips de rastreamento 5G, afirmam mensagens virais compartilhadas nas redes sociais.", "expected_overall": "Contém alegações contraditas", "notes": "desinformação de saúde"}
+{"id": "s09", "input": "https://pt.wikipedia.org/wiki/Brasil", "expected_overall": null, "notes": "URL real: sem gabarito, apenas latência/status"}
+{"id": "s10", "input": "https://exemplo-inexistente.invalid/noticia", "expected_overall": null, "notes": "URL inacessível: deve falhar de forma graciosa"}
