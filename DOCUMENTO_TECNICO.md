@@ -552,7 +552,7 @@ O projeto dispõe de um módulo CLI para aferir o desempenho do pipeline em lote
 
 ## 12. Garantia de Qualidade e Cobertura de Testes
 
-O Reliability Lab conta com **116 testes automatizados** cobrindo ponta a ponta todos os requisitos do sistema:
+O Reliability Lab conta com **128 testes automatizados** cobrindo ponta a ponta todos os requisitos do sistema:
 
 ```powershell
 .venv\Scripts\pytest.exe
@@ -565,6 +565,9 @@ O Reliability Lab conta com **116 testes automatizados** cobrindo ponta a ponta 
 | `test_architecture.py` | 1 | Validação de AST assegurando que `src/reliability/verification/` não importa LLMs. |
 | `test_rules.py` | 26 | Verificação estrita das Regras 1 a 6 com todos os casos de borda e precedências. |
 | `test_media.py` | 6 | Extração no YouTube, Vision para fotos/imagens e amostragem de frames de vídeo via OpenCV. |
+| `test_forensics.py` | 3 | Perícia de imagem (EXIF, software de edição/Photoshop, hashes criptográficos SHA-256/MD5). |
+| `test_reputation.py` | 6 | Classificação de URLs em Tiers (IFCN, veículos de referência e web geral), pesos e expansão de busca. |
+| `test_confidence_and_report.py` | 3 | Cálculo determinístico de certeza metodológica e geração de laudo técnico pericial em HTML/PDF. |
 | `test_ssrf.py` | 29 | Bloqueio de IPs privados, loopback, metadados de nuvem, portas ilegais e validação de IP pinning. |
 | `test_structured.py` | 8 | Testes de contratos Pydantic, normalização de citações literais e retries corretivos. |
 | `test_pipeline_e2e.py` | 12 | Execução ponta a ponta do pipeline completo (fluxos de sucesso, paywalls e bloqueios). |
@@ -576,4 +579,5 @@ O Reliability Lab conta com **116 testes automatizados** cobrindo ponta a ponta 
 | `test_search.py` | 4 | Provedores DuckDuckGo e Tavily, deduplicação de domínios e tratamento de falhas de rede. |
 | `test_evaluation.py` | 3 | Cálculo de métricas de avaliação (Macro-F1, matriz de confusão e parsing de JSONL). |
 
-**Status Geral da Suíte:** 116 aprovados (100% de sucesso).
+**Status Geral da Suíte:** 128 aprovados (100% de sucesso).
+
