@@ -130,6 +130,11 @@ def normalize_for_match(text: str) -> str:
     return text
 
 
+def strip_accents(text: str) -> str:
+    """Remove diacritics and combining marks from text."""
+    return "".join(c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn")
+
+
 def quote_in_text(quote: str, text: str) -> bool:
     """True iff `quote` appears literally (after normalisation) inside `text`."""
     q = normalize_for_match(quote)
@@ -140,7 +145,12 @@ def quote_in_text(quote: str, text: str) -> bool:
         return True
     # Also check without leading/trailing quotes (models often wrap quotes in quotation marks)
     q_stripped = q.strip('"\' ')
-    return bool(q_stripped) and q_stripped in n_text
+    if bool(q_stripped) and q_stripped in n_text:
+        return True
+    # Check with diacritics / accents stripped (handles minor accent differences/transcripts)
+    q_no_accents = strip_accents(q_stripped)
+    text_no_accents = strip_accents(n_text)
+    return bool(q_no_accents) and q_no_accents in text_no_accents
 
 
 def _check_quote(quote: str, info: ValidationInfo, key: str = "source_text") -> str:

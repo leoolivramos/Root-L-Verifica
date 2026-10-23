@@ -397,8 +397,10 @@ with st.sidebar:
     st.markdown("### Reliability Lab")
     if settings.reliability_demo:
         st.warning("MODO DEMONSTRAÇÃO: LLM e busca simulados.")
-    elif not settings.effective_api_key and "localhost" not in settings.llm_base_url:
+    elif not settings.effective_api_key and "localhost" not in settings.llm_base_url and "127.0.0.1" not in settings.llm_base_url:
         st.warning("⚠️ Chave `OPENAI_API_KEY` não configurada no `.env`.")
+    elif "localhost" in settings.llm_base_url or "127.0.0.1" in settings.llm_base_url:
+        st.success("🟢 Ollama Local Conectado")
     st.caption(f"Modelo: `{settings.llm_model}`")
     st.caption(f"Pipeline `{PIPELINE_VERSION}` · prompts `{PROMPT_VERSION}`")
 

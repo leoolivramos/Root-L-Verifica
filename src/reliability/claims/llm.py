@@ -85,7 +85,7 @@ class InstructorGateway:
         effective_key = (
             api_key.strip()
             if api_key and api_key.strip()
-            else ("ollama" if "localhost" in self._base_url else "missing-key")
+            else ("ollama" if ("localhost" in self._base_url or "127.0.0.1" in self._base_url) else "missing-key")
         )
 
         client_kwargs: dict[str, Any] = {
@@ -265,6 +265,12 @@ class InstructorGateway:
                 raise LLMUnavailable(
                     f"Tempo limite esgotado ({self._timeout_s:.0f}s) aguardando análise visual do modelo '{self._model}'."
                 ) from exc
+            if "multimodal" in str(cause).lower():
+                raise LLMUnavailable(
+                    f"O modelo local '{self._model}' no Ollama não possui suporte a visão/multimodal. "
+                    "Para analisar imagens/vídeos localmente, instale um modelo multimodal (ex: `ollama run llama3.2-vision`) "
+                    "ou use uma chave da OpenAI no .env."
+                ) from exc
             raise LLMUnavailable(f"Erro na análise visual da imagem: {cause}") from exc
 
         u = getattr(resp, "usage", None)
@@ -321,6 +327,12 @@ class InstructorGateway:
             ):
                 raise LLMUnavailable(
                     f"Tempo limite esgotado ({self._timeout_s:.0f}s) aguardando análise dos frames pelo modelo '{self._model}'."
+                ) from exc
+            if "multimodal" in str(cause).lower():
+                raise LLMUnavailable(
+                    f"O modelo local '{self._model}' no Ollama não possui suporte a visão/multimodal. "
+                    "Para analisar imagens/vídeos localmente, instale um modelo multimodal (ex: `ollama run llama3.2-vision`) "
+                    "ou use uma chave da OpenAI no .env."
                 ) from exc
             raise LLMUnavailable(f"Erro na análise visual dos frames do vídeo: {cause}") from exc
 

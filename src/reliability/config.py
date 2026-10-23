@@ -31,7 +31,11 @@ class Settings(BaseSettings):
         """Returns the configured API key, preferring OPENAI_API_KEY if defined."""
         if self.openai_api_key and self.openai_api_key.strip():
             return self.openai_api_key.strip()
-        return self.llm_api_key.strip()
+        if self.llm_api_key and self.llm_api_key.strip():
+            return self.llm_api_key.strip()
+        if "localhost" in self.llm_base_url or "127.0.0.1" in self.llm_base_url:
+            return "ollama"
+        return ""
 
     search_provider: str = "auto"  # auto | duckduckgo | tavily
     tavily_api_key: str = ""
