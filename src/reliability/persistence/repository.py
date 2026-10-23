@@ -35,6 +35,12 @@ from reliability.schemas import (
     TagCode,
     TagView,
 )
+from reliability.search.reputation import classify_url_tier, tier_badge_info
+from reliability.verification.confidence import (
+    ConfidenceClaim,
+    ConfidenceEvidence,
+    calculate_forensic_confidence,
+)
 
 
 class AnalysisRepository:
@@ -81,7 +87,7 @@ class AnalysisRepository:
             s.add(ProgressEvent(analysis_id=analysis_id, step=step, message=message))
 
     def update_meta(self, analysis_id: int, **fields: Any) -> None:
-        allowed = {"title", "domain", "summary", "media_type", "media_url"}
+        allowed = {"title", "domain", "summary", "media_type", "media_url", "media_forensics"}
         with self._sf.begin() as s:
             a = s.get(Analysis, analysis_id)
             for k, v in fields.items():
@@ -302,15 +308,13 @@ class AnalysisRepository:
                 else:
                     claim_tags.setdefault(t.claim_id, []).append(tv)
 
-            claims = [
-                ClaimReport(
-                    id=c.id,
-                    text=c.text,
-                    claim_type=ClaimType(c.claim_type),
-                    importance=c.importance,
-                    verification_status=ClaimVerdict(c.verification_status),
-                    rationale=c.rationale,
-                    evidences=[
+            claims = []
+            for c in a.claims:
+                evs = []
+                for e in c.evidences:
+                    tier_obj = classify_url_tier(e.source.url)
+                    badge_label = tier_badge_info(tier_obj)[0]
+                    evs.append(
                         EvidenceView(
                             source_url=e.source.url,
                             source_title=e.source.title,
@@ -322,13 +326,42 @@ class AnalysisRepository:
                             relevance=e.relevance,
                             exact_quote=e.exact_quote,
                             omits_context=e.omits_context,
+                            tier=tier_obj.value,
+                            tier_label=badge_label,
                         )
-                        for e in c.evidences
-                    ],
-                    tags=claim_tags.get(c.id, []),
+                    )
+                claims.append(
+                    ClaimReport(
+                        id=c.id,
+                        text=c.text,
+                        claim_type=ClaimType(c.claim_type),
+                        importance=c.importance,
+                        verification_status=ClaimVerdict(c.verification_status),
+                        rationale=c.rationale,
+                        evidences=evs,
+                        tags=claim_tags.get(c.id, []),
+                    )
                 )
-                for c in a.claims
+
+            # Deterministic forensic confidence calculation
+            conf_claims = [
+                ConfidenceClaim(
+                    verdict=c.verification_status,
+                    importance=c.importance,
+                    evidences=[
+                        ConfidenceEvidence(
+                            domain=ev.domain or ev.source_url,
+                            stance=ev.stance,
+                            relevance=ev.relevance,
+                            tier=ev.tier,
+                        )
+                        for ev in c.evidences
+                    ],
+                )
+                for c in claims
             ]
+            conf_res = calculate_forensic_confidence(conf_claims)
+
             return AnalysisReport(
                 id=a.id,
                 input_type=a.input_type,  # type: ignore[arg-type]
@@ -354,6 +387,9 @@ class AnalysisRepository:
                 feedback_given=bool(a.feedback),
                 media_type=getattr(a, "media_type", None),
                 media_url=getattr(a, "media_url", None),
+                forensic_confidence=conf_res.score,
+                forensic_confidence_label=conf_res.label,
+                forensic_media_analysis=getattr(a, "media_forensics", None),
             )
 
     def history_dataframe(self) -> pd.DataFrame:

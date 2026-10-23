@@ -43,6 +43,8 @@ def make_engine(db_path: str | Path) -> Engine:
                 conn.exec_driver_sql("ALTER TABLE analysis ADD COLUMN media_type VARCHAR(32)")
             if "media_url" not in cols:
                 conn.exec_driver_sql("ALTER TABLE analysis ADD COLUMN media_url TEXT")
+            if "media_forensics" not in cols:
+                conn.exec_driver_sql("ALTER TABLE analysis ADD COLUMN media_forensics JSON")
     return engine
 
 

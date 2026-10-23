@@ -174,6 +174,7 @@ async def run_analysis(analysis_id: int, deps: Deps) -> None:
             domain=doc.domain,
             media_type=doc.media_type,
             media_url=doc.media_url,
+            media_forensics=doc.metadata.get("forensics"),
         )
         media_badge = f" [{doc.media_type.upper()}]" if doc.media_type else ""
         await note(

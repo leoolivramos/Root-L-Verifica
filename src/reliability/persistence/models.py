@@ -36,6 +36,7 @@ class Analysis(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_forensics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     step_label: Mapped[str] = mapped_column(String(128), default="Na fila")
     warnings: Mapped[list] = mapped_column(JSON, default=list)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

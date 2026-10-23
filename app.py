@@ -19,6 +19,7 @@ from reliability.bootstrap import build_deps
 from reliability.config import PIPELINE_VERSION, PROMPT_VERSION, get_settings
 from reliability.errors import InvalidInput, ReliabilityError
 from reliability.jobs import JobManager
+from reliability.report.dossier import generate_forensic_html_report
 from reliability.schemas import (
     TAG_LABELS,
     TERMINAL_STATUSES,
@@ -175,10 +176,16 @@ def _render_claims(rep: AnalysisReport) -> None:
             for e in c.evidences:
                 label, color = STANCE_UI[e.stance]
                 who = e.publisher or e.domain or "fonte"
-                fc_badge = factcheck_badge() if is_factcheck_domain(e.domain) else ""
+                tier_badge = (
+                    f'<span style="background:rgba(59,130,246,0.18);color:#93c5fd;border:1px solid rgba(59,130,246,0.4);'
+                    f'padding:.12rem .5rem;border-radius:6px;font-size:.72rem;font-weight:700;margin-left:.4rem;">'
+                    f'{esc(e.tier_label or e.tier)}</span>'
+                    if (getattr(e, "tier_label", None) or getattr(e, "tier", None))
+                    else (factcheck_badge() if is_factcheck_domain(e.domain) else "")
+                )
                 st.markdown(
                     f'<span style="color:{color};font-weight:700">{label}</span> · '
-                    f"<b>{esc(who)}</b>{fc_badge} · relevância {e.relevance:.0%}"
+                    f"<b>{esc(who)}</b>{tier_badge} · relevância {e.relevance:.0%}"
                     + (" · 🔒 paywall" if e.is_paywalled else "")
                     + (" · ⚠️ omite contexto" if e.omits_context else ""),
                     unsafe_allow_html=True,
@@ -248,7 +255,7 @@ def _render_investigative_dashboard(rep: AnalysisReport) -> None:
                             key=lambda e: (1 if e.stance.value == "contradicts" else 0, e.relevance),
                         )
                         who = best_ev.publisher or best_ev.domain or "Fonte"
-                        fc = " [🛡️ Checagem]" if is_factcheck_domain(best_ev.domain) else ""
+                        fc = f" [{best_ev.tier_label or 'Tier'}]" if getattr(best_ev, "tier_label", None) else (" [🛡️ Checagem]" if is_factcheck_domain(best_ev.domain) else "")
                         st.markdown(
                             f"- **{esc(who)}{fc}**: “{esc(best_ev.exact_quote[:130])}{'…' if len(best_ev.exact_quote) > 130 else ''}”"
                         )
@@ -288,6 +295,27 @@ def page_report() -> None:
         unsafe_allow_html=True,
     )
 
+    # Forensic Action Bar & Dossier Download
+    c_dl1, c_dl2 = st.columns([2, 1])
+    with c_dl1:
+        if rep.forensic_confidence_label:
+            st.markdown(
+                f'<div style="background:rgba(45,212,191,0.08);border:1px solid rgba(45,212,191,0.3);'
+                f'border-radius:10px;padding:.5rem 1rem;font-size:.9rem;color:#5eead4;margin-bottom:.5rem;">'
+                f'🛡️ <b>Índice Pericial:</b> {esc(rep.forensic_confidence_label)}</div>',
+                unsafe_allow_html=True,
+            )
+    with c_dl2:
+        dossier_html = generate_forensic_html_report(rep)
+        st.download_button(
+            label="📥 Baixar Laudo Técnico Pericial",
+            data=dossier_html,
+            file_name=f"laudo_pericial_LTP_{rep.id:06d}.html",
+            mime="text/html",
+            key="btn_download_dossier",
+            use_container_width=True,
+        )
+
     if rep.status is AnalysisStatus.FAILED:
         st.error(rep.error_message or "A análise falhou.")
     elif rep.status is AnalysisStatus.CANCELLED:
@@ -304,6 +332,48 @@ def page_report() -> None:
             elif rep.media_type == "image":
                 st.caption("📷 **Foto / Imagem analisada**")
                 st.image(rep.media_url, width="stretch")
+
+    # Perícia Forense de Mídia (Metadados EXIF, Software, Hashes, GPS)
+    if rep.forensic_media_analysis:
+        m = rep.forensic_media_analysis
+        with st.expander("🔬 Perícia Forense de Mídia (Arquivo Digital & EXIF)", expanded=True):
+            if m.get("alerts"):
+                for al in m["alerts"]:
+                    st.error(f"⚠️ {al}")
+            mc1, mc2, mc3 = st.columns(3)
+            mc1.metric("Formato", f"{m.get('format', 'Digital')} ({m.get('media_type', '').upper()})")
+            mc2.metric("Tamanho", m.get("size_formatted", "N/A"))
+            dims = m.get("dimensions") or {}
+            dim_txt = f"{dims.get('width', '?')}x{dims.get('height', '?')} px"
+            if dims.get("megapixels"):
+                dim_txt += f" ({dims['megapixels']} MP)"
+            mc3.metric("Resolução", dim_txt)
+
+            c_info1, c_info2 = st.columns(2)
+            with c_info1:
+                st.markdown(
+                    f"**Dispositivo de Captura:** `{m.get('camera_make') or ''} {m.get('camera_model') or 'Não registrado'}`"
+                )
+                st.markdown(
+                    f"**Data Original de Registro:** `{m.get('date_original') or 'Não informada'}`"
+                )
+                if m.get("software_detected"):
+                    st.markdown(
+                        f"**Software de Edição Detectado:** :red[{m.get('software_detected')}] (Possível montagem)"
+                    )
+                else:
+                    st.markdown("**Software de Edição:** :green[Nenhum software de manipulação assinado]")
+            with c_info2:
+                gps = m.get("gps")
+                if gps:
+                    st.markdown(
+                        f"**Geolocalização GPS:** `{gps.get('latitude')}, {gps.get('longitude')}` "
+                        f"([Abrir no Google Maps ↗]({gps.get('google_maps')}))"
+                    )
+                else:
+                    st.markdown("**Geolocalização GPS:** `Não registrada`")
+                st.markdown(f"**SHA-256:** `{m.get('sha256', '')[:28]}...`")
+                st.markdown(f"**MD5:** `{m.get('md5', '')}`")
 
     # (1) scoreboard + painel investigativo + tags
     if rep.overall_status:

@@ -229,6 +229,8 @@ class EvidenceView(BaseModel):
     relevance: float
     exact_quote: str
     omits_context: bool = False
+    tier: str = "tier_3_general"
+    tier_label: str | None = None
 
 
 class TagView(BaseModel):
@@ -273,3 +275,7 @@ class AnalysisReport(BaseModel):
     feedback_given: bool = False
     media_type: str | None = None
     media_url: str | None = None
+    forensic_confidence: float | None = None
+    forensic_confidence_label: str | None = None
+    forensic_media_analysis: dict | None = None
+

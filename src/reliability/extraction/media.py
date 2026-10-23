@@ -13,6 +13,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 from reliability.claims.llm import LLMGateway, Usage
 from reliability.extraction.extractor import ExtractedDocument, registrable_domain
+from reliability.extraction.forensics import analyze_image_forensics, analyze_video_forensics
 
 # Supported image extensions
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tiff", ".avif")
@@ -196,13 +197,16 @@ async def extract_image_document(
     if not mime.startswith("image/"):
         mime = "image/jpeg"
 
-    analysis_text, usage = await gateway.analyze_image(
-        raw_bytes, mime_type=mime, prompt=IMAGE_VISION_PROMPT
-    )
-
     domain = registrable_domain(url)
     filename = urlsplit(url).path.split("/")[-1] or "imagem.jpg"
     title = f"Foto / Imagem: {filename}"
+
+    # Perform forensic metadata and cryptographic analysis
+    forensics = analyze_image_forensics(raw_bytes, filename=filename)
+
+    analysis_text, usage = await gateway.analyze_image(
+        raw_bytes, mime_type=mime, prompt=IMAGE_VISION_PROMPT
+    )
 
     full_text = (
         f"Arquivo de Imagem: {filename}\n"
@@ -215,7 +219,12 @@ async def extract_image_document(
         title=title,
         domain=domain,
         text=full_text,
-        metadata={"mime_type": mime, "byte_size": len(raw_bytes), "usage": usage},
+        metadata={
+            "mime_type": mime,
+            "byte_size": len(raw_bytes),
+            "usage": usage,
+            "forensics": forensics,
+        },
         media_type="image",
         media_url=url,
     )
@@ -225,6 +234,13 @@ async def extract_video_document(
     gateway: LLMGateway, raw_bytes: bytes, url: str
 ) -> ExtractedDocument:
     """Extract keyframes and analyze video with vision to build an ExtractedDocument."""
+    domain = registrable_domain(url)
+    filename = urlsplit(url).path.split("/")[-1] or "video.mp4"
+    title = f"Vídeo: {filename}"
+
+    # Perform forensic container and cryptographic analysis
+    forensics = analyze_video_forensics(raw_bytes, filename=filename)
+
     frames = extract_video_keyframes(raw_bytes, max_frames=4)
     usage = Usage()
     analysis_text = ""
@@ -233,10 +249,6 @@ async def extract_video_document(
         analysis_text, usage = await gateway.analyze_frames(frames, prompt=VIDEO_VISION_PROMPT)
     else:
         analysis_text = "Não foi possível extrair frames válidos deste arquivo de vídeo para análise visual."
-
-    domain = registrable_domain(url)
-    filename = urlsplit(url).path.split("/")[-1] or "video.mp4"
-    title = f"Vídeo: {filename}"
 
     full_text = (
         f"Arquivo de Vídeo: {filename}\n"
@@ -249,7 +261,13 @@ async def extract_video_document(
         title=title,
         domain=domain,
         text=full_text,
-        metadata={"byte_size": len(raw_bytes), "frames_analyzed": len(frames), "usage": usage},
+        metadata={
+            "byte_size": len(raw_bytes),
+            "frames_analyzed": len(frames),
+            "usage": usage,
+            "forensics": forensics,
+        },
         media_type="video",
         media_url=url,
     )
+
