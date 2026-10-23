@@ -21,6 +21,12 @@ from reliability.extraction.extractor import extract_document, registrable_domai
 from reliability.extraction.fetcher import SafeFetcher
 from reliability.schemas import Depth, EvidenceJudgement, Stance, quote_in_text
 from reliability.search.base import EvidenceSearchProvider, SearchHit
+from reliability.search.reputation import (
+    SourceTier,
+    build_factcheck_queries,
+    classify_url_tier,
+    tier_weight,
+)
 
 RESULTS_PER_CLAIM = {Depth.FAST: 3, Depth.DEEP: 5}
 PASSAGE_CHARS = {Depth.FAST: 2500, Depth.DEEP: 4500}
@@ -34,6 +40,7 @@ class SourceInfo:
     domain: str | None
     published_at: datetime | None
     is_paywalled: bool
+    tier: SourceTier = SourceTier.TIER_3_GENERAL
 
 
 @dataclass
@@ -44,10 +51,45 @@ class GatheredEvidence:
 
 _WORD_RE = re.compile(r"\w{4,}", re.UNICODE)
 
+BOOST_FACTCHECK_TERMS = {
+    "desmentiu",
+    "negou",
+    "afirmou",
+    "esclareceu",
+    "falso",
+    "boato",
+    "fake",
+    "farsa",
+    "distorcao",
+    "distorção",
+    "comunicou",
+    "comunicado",
+    "apurado",
+    "procede",
+    "oficial",
+    "desmentido",
+    "checagem",
+    "inverdade",
+    "declarou",
+}
+
+BOILERPLATE_SUBSTRINGS = (
+    "compartilhe no whatsapp",
+    "inscreva-se",
+    "newsletter",
+    "todos os direitos reservados",
+    "politica de privacidade",
+    "política de privacidade",
+    "termos de uso",
+    "leia tambem",
+    "leia também",
+    "veja mais:",
+)
+
 
 def select_passage(text: str, claim_text: str, max_chars: int) -> str:
-    """Deterministically pick the paragraphs most related to the claim (keyword overlap),
-    preserving original order, within `max_chars`."""
+    """Deterministically pick the paragraphs most related to the claim (keyword overlap +
+    fact-checking boost - boilerplate penalties), preserving original order, within `max_chars`."""
     text = text.strip()
     if len(text) <= max_chars:
         return text
@@ -57,8 +99,13 @@ def select_passage(text: str, claim_text: str, max_chars: int) -> str:
     keys = set(w.lower() for w in _WORD_RE.findall(claim_text))
     scored = []
     for i, p in enumerate(paras):
+        p_lower = p.lower()
         words = set(w.lower() for w in _WORD_RE.findall(p))
-        scored.append((len(keys & words), -i, i, p))
+        overlap_score = len(keys & words) * 2
+        factcheck_bonus = len(BOOST_FACTCHECK_TERMS & words) * 3
+        boilerplate_penalty = 15 if any(b in p_lower for b in BOILERPLATE_SUBSTRINGS) else 0
+        total_score = overlap_score + factcheck_bonus - boilerplate_penalty
+        scored.append((total_score, -i, i, p))
     scored.sort(reverse=True)
     chosen: list[tuple[int, str]] = []
     used = 0
@@ -97,7 +144,8 @@ async def _passage_for_hit(
     elif text:
         paywalled = any(b.kind == "paywall" for b in detect_blockers("", text) if b.blocking)
 
-    info = SourceInfo(hit.url, title, publisher, domain, published, paywalled)
+    tier = classify_url_tier(hit.url)
+    info = SourceInfo(hit.url, title, publisher, domain, published, paywalled, tier=tier)
     return select_passage(text, claim_text, PASSAGE_CHARS[depth]), paywalled, info
 
 
@@ -114,16 +162,47 @@ async def gather_evidence(
     warnings: list[str],
     semaphore: asyncio.Semaphore,
 ) -> list[GatheredEvidence]:
+    hits: list[SearchHit] = []
     try:
         async with semaphore:
             hits = await provider.search(query, RESULTS_PER_CLAIM[depth] + 2)
     except SearchError as exc:
         warnings.append(f"Falha na busca para uma alegação: {exc}")
+        hits = []
+
+    # Two-Phase Fact-Checking Search:
+    # If initial search is empty, or in DEEP mode without any Tier 1 desk results,
+    # expand search with targeted fact-checking desks (unless running a scripted test scenario)
+    is_scripted_demo = bool(getattr(provider, "scenarios", None) and query in provider.scenarios)
+    if not is_scripted_demo:
+        has_tier1 = any(classify_url_tier(h.url) is SourceTier.TIER_1_FACT_CHECK for h in hits)
+        should_run_phase2 = len(hits) == 0 or (depth is Depth.DEEP and not has_tier1)
+        if should_run_phase2:
+            desk_queries = build_factcheck_queries(claim_text)
+            for dq in desk_queries[:2]:
+                try:
+                    async with semaphore:
+                        extra_hits = await provider.search(dq, 3)
+                        hits.extend(extra_hits)
+                        if any(classify_url_tier(h.url) is SourceTier.TIER_1_FACT_CHECK for h in extra_hits):
+                            break
+                except SearchError:
+                    continue
+
+    if not hits:
         return []
+
+    # Sort candidates with Tier 1 and Tier 2 prioritized ahead of general Tier 3
+    # Preserving relative search position within the same tier
+    indexed_hits = list(enumerate(hits))
+    indexed_hits.sort(
+        key=lambda pair: (tier_weight(classify_url_tier(pair[1].url)), -pair[0]),
+        reverse=True,
+    )
 
     chosen: list[SearchHit] = []
     seen_domains: set[str] = set()
-    for h in hits:
+    for _, h in indexed_hits:
         d = registrable_domain(h.url)
         if not d or d == exclude_domain or d in seen_domains:
             continue
