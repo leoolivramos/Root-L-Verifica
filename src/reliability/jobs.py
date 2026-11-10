@@ -29,6 +29,51 @@ class JobManager:
         self._loop.run_forever()
 
     # ---------------------------------------------------------------- public API
+    def update_llm_config(
+        self,
+        *,
+        provider: str,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        """Update active settings and LLM gateway for subsequent analyses."""
+        new_settings = self.deps.settings.for_provider(
+            provider,
+            model,
+            base_url=base_url,
+            api_key=api_key,
+        )
+        if self.deps.settings.reliability_demo:
+            with self._lock:
+                self.deps = Deps(
+                    settings=new_settings,
+                    gateway=self.deps.gateway,
+                    provider=self.deps.provider,
+                    fetcher=self.deps.fetcher,
+                    repo=self.deps.repo,
+                )
+            return
+
+        from reliability.claims.llm import InstructorGateway
+
+        new_gateway = InstructorGateway(
+            base_url=new_settings.llm_base_url,
+            api_key=new_settings.effective_api_key,
+            model=new_settings.llm_model,
+            timeout_s=new_settings.llm_timeout_s,
+            max_retries=new_settings.llm_max_retries,
+            mode=new_settings.llm_mode,
+        )
+        with self._lock:
+            self.deps = Deps(
+                settings=new_settings,
+                gateway=new_gateway,
+                provider=self.deps.provider,
+                fetcher=self.deps.fetcher,
+                repo=self.deps.repo,
+            )
+
     def submit(self, raw_input: str, depth: Depth = Depth.FAST) -> int:
         """Validate input (raises InvalidInput), create the record and start the job."""
         analysis_id = create_analysis(self.deps, raw_input, depth)
