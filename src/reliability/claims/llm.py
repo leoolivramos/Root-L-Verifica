@@ -7,6 +7,7 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
+from reliability.claims.models import is_reasoning_model
 from reliability.errors import LLMUnavailable, StructuredOutputError
 
 T = TypeVar("T", bound=BaseModel)
@@ -73,11 +74,22 @@ class InstructorGateway:
             or model.lower().startswith(("gpt-", "o1", "o3", "chatgpt-"))
         )
 
+        self._is_reasoning = is_reasoning_model(model)
+
         mode_str = mode.lower().strip()
-        if mode_str == "tools" or (mode_str == "auto" and is_openai):
+        if self._is_reasoning:
+            # Reasoning models (gpt-6, o1, o3, etc.) NEVER support function tools
+            # in /v1/chat/completions with reasoning_effort active.
+            # Must strictly use JSON mode.
+            chosen_mode = instructor.Mode.JSON
+        elif mode_str == "tools":
             chosen_mode = instructor.Mode.TOOLS
         elif mode_str == "json_schema":
             chosen_mode = instructor.Mode.JSON_SCHEMA
+        elif mode_str == "json":
+            chosen_mode = instructor.Mode.JSON
+        elif is_openai:
+            chosen_mode = instructor.Mode.TOOLS
         else:
             chosen_mode = instructor.Mode.JSON
 
@@ -118,7 +130,6 @@ class InstructorGateway:
         hooks = Hooks()
         hooks.on("completion:response", _on_response)
 
-        is_reasoning_model = any(k in self._model.lower() for k in ("luna", "o1", "o3", "o4"))
         create_kwargs: dict[str, Any] = {
             "model": self._model,
             "response_model": response_model,
@@ -130,9 +141,7 @@ class InstructorGateway:
             "context": {"source_text": source_text},
             "hooks": hooks,
         }
-        if is_reasoning_model:
-            create_kwargs["reasoning_effort"] = "none"
-        else:
+        if not self._is_reasoning:
             create_kwargs["temperature"] = 0
 
         try:
@@ -222,7 +231,6 @@ class InstructorGateway:
 
         b64 = base64.b64encode(image_bytes).decode("utf-8")
         usage = Usage()
-        is_reasoning_model = any(k in self._model.lower() for k in ("luna", "o1", "o3", "o4"))
         create_kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": [
@@ -241,8 +249,7 @@ class InstructorGateway:
                 }
             ],
         }
-        if is_reasoning_model:
-            create_kwargs["reasoning_effort"] = "none"
+        if self._is_reasoning:
             create_kwargs["max_completion_tokens"] = 2500
         else:
             create_kwargs["temperature"] = 0
@@ -299,13 +306,11 @@ class InstructorGateway:
                 },
             })
 
-        is_reasoning_model = any(k in self._model.lower() for k in ("luna", "o1", "o3", "o4"))
         create_kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": [{"role": "user", "content": content_items}],
         }
-        if is_reasoning_model:
-            create_kwargs["reasoning_effort"] = "none"
+        if self._is_reasoning:
             create_kwargs["max_completion_tokens"] = 2500
         else:
             create_kwargs["temperature"] = 0

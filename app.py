@@ -16,6 +16,12 @@ st.set_page_config(
 )
 
 from reliability.bootstrap import build_deps
+from reliability.claims.models import (
+    DEFAULT_OLLAMA_MODELS,
+    VALID_OPENAI_MODELS,
+    check_ollama_status,
+    fetch_ollama_models,
+)
 from reliability.config import PIPELINE_VERSION, PROMPT_VERSION, get_settings
 from reliability.errors import InvalidInput, ReliabilityError
 from reliability.jobs import JobManager
@@ -108,9 +114,11 @@ def page_new() -> None:
                 st.session_state.active_id = aid
                 st.switch_page(PAGES["progress"])
 
+    active_settings = manager.deps.settings
+    active_prov = "Ollama Local" if ("localhost" in active_settings.llm_base_url or "127.0.0.1" in active_settings.llm_base_url) else "OpenAI Nuvem"
     st.markdown(
-        '<p class="rl-muted">Nenhum conteúdo sai desta máquina além das consultas de busca e do '
-        f"endpoint do modelo configurado ({esc(settings.llm_base_url)}).</p>",
+        f'<p class="rl-muted">Modelo ativo: <b>{esc(active_settings.llm_model)}</b> ({active_prov}) &middot; Endpoint: <code>{esc(active_settings.llm_base_url)}</code>.<br>'
+        "Nenhum conteúdo sai desta máquina além das consultas de busca e do endpoint do modelo configurado.</p>",
         unsafe_allow_html=True,
     )
 
@@ -463,16 +471,130 @@ PAGES["progress"] = st.Page(page_progress, title="Progresso", url_path="progress
 PAGES["report"] = st.Page(page_report, title="Relatório", url_path="relatorio")
 PAGES["history"] = st.Page(page_history, title="Histórico", url_path="historico")
 
+def render_model_selector(jm: JobManager) -> None:
+    current_settings = jm.deps.settings
+    is_current_local = "localhost" in current_settings.llm_base_url or "127.0.0.1" in current_settings.llm_base_url
+
+    st.sidebar.markdown("### Reliability Lab")
+    if current_settings.reliability_demo:
+        st.sidebar.warning("MODO DEMONSTRAÇÃO: LLM e busca simulados.")
+        st.sidebar.caption(f"Modelo: `{current_settings.llm_model}`")
+        st.sidebar.caption(f"Pipeline `{PIPELINE_VERSION}` · prompts `{PROMPT_VERSION}`")
+        return
+
+    st.sidebar.markdown("#### Modelo & Provedor")
+    provider_labels = ["Ollama (Local)", "OpenAI (Nuvem)"]
+    default_idx = 0 if is_current_local else 1
+
+    if "selected_provider_choice" not in st.session_state:
+        st.session_state.selected_provider_choice = provider_labels[default_idx]
+
+    chosen_provider = st.sidebar.radio(
+        "Provedor LLM",
+        provider_labels,
+        index=0 if st.session_state.selected_provider_choice == provider_labels[0] else 1,
+        key="radio_llm_provider",
+        horizontal=True,
+    )
+    st.session_state.selected_provider_choice = chosen_provider
+
+    chosen_model = ""
+    chosen_key: str | None = None
+
+    if chosen_provider == "Ollama (Local)":
+        is_online, status_msg = check_ollama_status()
+        if is_online:
+            st.sidebar.success(f"🟢 {status_msg}")
+            ollama_models = fetch_ollama_models()
+        else:
+            st.sidebar.warning(f"⚠️ {status_msg}")
+            st.sidebar.caption("Execute `ollama serve` no terminal para iniciar o daemon local.")
+            ollama_models = list(DEFAULT_OLLAMA_MODELS)
+
+        options = list(ollama_models)
+        if "Outro (personalizado)..." not in options:
+            options.append("Outro (personalizado)...")
+
+        curr_model = current_settings.llm_model if is_current_local else options[0]
+        model_idx = options.index(curr_model) if curr_model in options else 0
+
+        selected_model_option = st.sidebar.selectbox(
+            "Modelo Ollama",
+            options=options,
+            index=model_idx,
+            key="select_ollama_model",
+            help="Selecione um dos modelos instalados no seu Ollama local ou digite um novo.",
+        )
+
+        if selected_model_option == "Outro (personalizado)...":
+            chosen_model = st.sidebar.text_input(
+                "Nome do modelo personalizado",
+                value=curr_model if curr_model not in options[:-1] else "",
+                placeholder="ex: qwen2.5:14b",
+                key="input_custom_ollama_model",
+            ).strip()
+        else:
+            chosen_model = selected_model_option
+
+    else:  # OpenAI (Nuvem)
+        has_key = bool(current_settings.openai_api_key or current_settings.effective_api_key)
+        if has_key:
+            st.sidebar.success("🟢 Chave OpenAI configurada")
+        else:
+            st.sidebar.warning("⚠️ Chave `OPENAI_API_KEY` ausente")
+            chosen_key = st.sidebar.text_input(
+                "Informe sua OPENAI_API_KEY",
+                type="password",
+                placeholder="sk-proj-...",
+                key="input_custom_openai_key",
+                help="A chave será usada nesta sessão da aplicação.",
+            ).strip()
+
+        openai_options = list(VALID_OPENAI_MODELS)
+        if "Outro (personalizado)..." not in openai_options:
+            openai_options.append("Outro (personalizado)...")
+
+        curr_model = current_settings.llm_model if not is_current_local else "gpt-4o-mini"
+        model_idx = openai_options.index(curr_model) if curr_model in openai_options else 0
+
+        selected_model_option = st.sidebar.selectbox(
+            "Modelo OpenAI",
+            options=openai_options,
+            index=model_idx,
+            key="select_openai_model",
+            help="Modelos recomendados e validados para extração estruturada de alegações.",
+        )
+
+        if selected_model_option == "Outro (personalizado)...":
+            chosen_model = st.sidebar.text_input(
+                "Nome do modelo OpenAI",
+                value=curr_model if curr_model not in openai_options[:-1] else "",
+                placeholder="ex: gpt-4o-2024-08-06",
+                key="input_custom_openai_model",
+            ).strip()
+        else:
+            chosen_model = selected_model_option
+
+    prov_name = "ollama" if chosen_provider == "Ollama (Local)" else "openai"
+    provider_changed = is_current_local != (chosen_provider == "Ollama (Local)")
+    model_changed = bool(chosen_model and chosen_model != current_settings.llm_model)
+
+    if (provider_changed or model_changed or chosen_key) and chosen_model:
+        jm.update_llm_config(
+            provider=prov_name,
+            model=chosen_model,
+            api_key=chosen_key,
+        )
+
+    active_settings = jm.deps.settings
+    st.sidebar.markdown("---")
+    st.sidebar.caption(f"**Modelo ativo:** `{active_settings.llm_model}`")
+    st.sidebar.caption(f"**Endpoint:** `{active_settings.llm_base_url}`")
+    st.sidebar.caption(f"Pipeline `{PIPELINE_VERSION}` · prompts `{PROMPT_VERSION}`")
+
+
 with st.sidebar:
-    st.markdown("### Reliability Lab")
-    if settings.reliability_demo:
-        st.warning("MODO DEMONSTRAÇÃO: LLM e busca simulados.")
-    elif not settings.effective_api_key and "localhost" not in settings.llm_base_url and "127.0.0.1" not in settings.llm_base_url:
-        st.warning("⚠️ Chave `OPENAI_API_KEY` não configurada no `.env`.")
-    elif "localhost" in settings.llm_base_url or "127.0.0.1" in settings.llm_base_url:
-        st.success("🟢 Ollama Local Conectado")
-    st.caption(f"Modelo: `{settings.llm_model}`")
-    st.caption(f"Pipeline `{PIPELINE_VERSION}` · prompts `{PROMPT_VERSION}`")
+    render_model_selector(manager)
 
 nav = st.navigation(list(PAGES.values()))
 nav.run()
